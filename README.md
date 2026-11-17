@@ -1,56 +1,52 @@
 # RF Meter
 
-CLI-скрипт для зчитування потужності з вимірювача ConceptRF серії RPM через USB-serial. Зараз використовується **RPM-20GS**.
+This script is a way to use the Concept-rf power meter RPM-20GS on macOS. It talks to the meter over USB serial, loads the factory calibration, and prints live power at the frequency you choose.
 
-Скрипт сам упізнає підключений прилад, завантажує заводську калібрувальну таблицю і безперервно друкує напругу детектора та потужність на заданій частоті.
+The meter identifies itself. RPM-20GS answers as device ID 101 or 104. Both use the same power range; the frequency grid differs, as described below.
 
-## Що вміє RPM-20GS у цьому скрипті
+## What this script assumes for the RPM-20GS
 
-| Параметр | Значення |
+| Parameter | Value |
 | --- | --- |
-| Діапазон частот | 10 МГц … 20 ГГц |
-| Діапазон потужності сенсора | −40 … +10 дБм |
-| Чіп | ARW28340 |
-| Точок калібровки по потужності | 21 (крок 2.5 дБ) |
-| Швидкість порту | 460800 бод |
+| Frequency range | 10 MHz … 20 GHz |
+| Sensor power range | −40 … +10 dBm |
+| Detector | ARW28340 |
+| Power calibration points | 21 (2.5 dB step) |
+| Serial rate | 460800 baud |
 
-У прошивці трапляються два ідентифікатори цієї моделі. Скрипт розрізняє їх за сіткою частот калібровки:
-
-| ID | Рядків калібровки | Сітка частот |
+| Device ID | Calibration rows | Frequency grid |
 | --- | --- | --- |
-| 101 | 202 | 10 МГц, 50 МГц, далі крок 100 МГц до 20 ГГц |
-| 104 | 218 | рівномірно від 10 МГц до 20 ГГц |
+| 101 | 202 | 10 MHz, 50 MHz, then 100 MHz steps to 20 GHz |
+| 104 | 218 | evenly spaced from 10 MHz to 20 GHz |
 
-Частота вимірювання задається аргументом `--freq` і має лежати всередині цієї сітки. Між сусідніми точками потужність інтерполюється.
+Set the measurement frequency with `-f` / `--freq`. It has to fall inside that grid. Power between the nearest calibration points is interpolated.
 
-У таблиці моделей також є RPM-3GS, RPM-9G і RPM-6GH. Якщо підключити один із них, скрипт його впізнає, але поточний робочий прилад — RPM-20GS.
+The model table also recognizes the RPM-3GS, RPM-9G, and RPM-6GH. This script is written and used for the RPM-20GS.
 
-## Як проходить вимірювання
+## What a measurement does
 
-1. Відкриває послідовний порт на 460800 бод.
-2. Запитує ідентифікацію (`0x80`). У відповіді приходять ID моделі, версія прошивки та серійний номер.
-3. Виставляє частоту вибірки (`0x83`).
-4. Зчитує заводську калібровку (`0x86`): для кожної частотної точки — набір напруг детектора. Прогрес друкується на екран. Якщо рядки перестають приходити, відсутній індекс запитується повторно.
-5. Приймає живі відліки (`0x06`). Сирий 24-бітний код переводиться в мілівольти (повна шкала ±1500 мВ), потім за калібровкою — у дБм на заданій частоті.
-6. До показання сенсора додається зовнішня атенюація `--atten`. Поруч друкується те саме значення в мВт.
+1. Opens the serial port at 460800 baud.
+2. Asks the meter to identify itself (`0x80`). The reply carries the model ID, firmware version, and serial number.
+3. Sets the sampling rate (`0x83`).
+4. Downloads the factory calibration (`0x86`): one row of detector voltages per frequency point. Progress is printed. If the stream stalls, the missing row is requested again.
+5. Reads live samples (`0x06`). The raw 24-bit code is scaled to millivolts (full scale ±1500 mV), then converted to dBm at the chosen frequency.
+6. Adds the external attenuation from `-a` / `--atten`, and prints that power in mW as well.
 
-Поза таблицею число в дБм не рахується, натомість пишеться причина:
+Outside the calibration table the script prints a reason instead of a dBm value:
 
-- нижче нижньої точки калібровки — `below calibrated range (noise floor)`
-- вище верхньої точки — `above calibrated range (sensor overload)`
-- `--freq` поза сіткою — `frequency outside calibration grid`
+- below the lowest calibrated point — `below calibrated range (noise floor)`
+- above the highest calibrated point — `above calibrated range (sensor overload)`
+- frequency outside the grid — `frequency outside calibration grid`
 
-Ідентифікація і встановлення частоти вибірки чекають відповіді до 3 с. Калібровка завершується з помилкою, якщо новий рядок не з’являється 5 с. Не той порт або мовчазний прилад більше не залишають процес висіти без повідомлення. Підтверджена частота вибірки має збігатися з `--rate`.
+Identification and the sampling-rate command wait up to 3 seconds. Calibration fails if no new row arrives for 5 seconds. A wrong port or a silent meter exits with an error instead of hanging. The acknowledged rate must match `-r` / `--rate`.
 
-Зупинка — `Ctrl+C`, без трасування.
+Stop with `Ctrl+C`.
 
-## Встановлення
+## Install
 
-Потрібен Python 3.8 або новіший і `pip`. Єдина залежність — `pyserial`.
+Python 3.8 or newer, with `pip`. The only dependency is `pyserial`.
 
-### Віртуальне оточення
-
-З каталогу проєкту:
+From the project directory:
 
 ```bash
 python3 -m venv venv
@@ -59,109 +55,107 @@ python -m pip install --upgrade pip
 pip install pyserial
 ```
 
-Після активації в запрошенні оболонки з’явиться префікс `(venv)`, а `python` і `pip` вказуватимуть на інтерпретатор усередині `venv/`.
+The shell prompt gains a `(venv)` prefix, and `python` / `pip` point at the interpreter inside `venv/`.
 
-Перевірка:
+Check the install:
 
 ```bash
 python -c "import serial; print(serial.__version__)"
 ```
 
-Щоб вийти з оточення:
-
-```bash
-deactivate
-```
-
-Наступного разу достатньо знову активувати його і запускати скрипт. Залежності ставити повторно не потрібно:
+Leave the environment with `deactivate`. Next time, activate it again and run the script. The dependency is already installed:
 
 ```bash
 source venv/bin/activate
 python rfmeter.py /dev/cu.usbserial-XXXX
 ```
 
-Каталог `venv/` локальний і в репозиторій його комітити не треба.
+`venv/` is local. Do not commit it.
 
-## Порт
+## Port
 
-На macOS порт зазвичай виглядає як `/dev/cu.usbserial-…` (для запису зручніше `cu.`, ніж `tty.`). Список портів після активації venv:
+On macOS the meter shows up as `/dev/cu.usbserial-…`. Use the `cu.` device, not `tty.`. The USB adapter is a CH340 (`USB VID:PID=1A86:7523`).
+
+After activating the virtual environment:
 
 ```bash
 python -m serial.tools.list_ports
 ```
 
-або:
+or:
 
 ```bash
 ls /dev/cu.usb*
 ```
 
-На Linux це типово `/dev/ttyUSB0` або `/dev/ttyACM0`. Користувач має бути в групі `dialout` (`sudo usermod -aG dialout $USER`, потім новий логін).
+No RF source is required to identify the meter or to load calibration. An open input, or a 50 ohm load, is enough.
 
-## Запуск
+## Run
 
-Довідка з прикладом і списком аргументів:
+Help, with examples and the argument list:
 
 ```bash
 python rfmeter.py -h
 ```
 
 ```bash
-python rfmeter.py PORT [-f МГц] [-a дБ] [-r 0|1|2|3] [-v]
+python rfmeter.py PORT [-f MHz] [-a dB] [-r 0|1|2|3] [-v]
 ```
 
-Приклади для RPM-20GS:
+Examples for the RPM-20GS:
 
 ```bash
-# 2.4 ГГц, без зовнішнього атенюатора, 10 вибірок/с
-python rfmeter.py /dev/cu.usbserial-14220
+# 2.4 GHz, no external attenuator, 10 samples/s
+python rfmeter.py /dev/cu.usbserial-14120
 
-# 5.8 ГГц, атенюатор 30 дБ на вході, 40 вибірок/с
-python rfmeter.py /dev/cu.usbserial-14220 -f 5800 -a 30 -r 1
+# 5.8 GHz, 30 dB attenuator in front of the sensor, 40 samples/s
+python rfmeter.py /dev/cu.usbserial-14120 -f 5800 -a 30 -r 1
 
-# кожен відлік окремим рядком
-python rfmeter.py /dev/cu.usbserial-14220 -v
+# one line per sample
+python rfmeter.py /dev/cu.usbserial-14120 -v
 ```
 
-`--atten` — це поправка в дБ, яку скрипт **додає** до показання сенсора. Якщо перед сенсором стоїть атенюатор 30 дБ, передайте `--atten 30`: перше число в дБм — потужність до атенюатора.
+`-a` / `--atten` is a dB offset **added** to the sensor reading. With a 30 dB attenuator in front of the meter, pass `-a 30`. The first dBm number is then the power before the attenuator.
 
-### Аргументи
+### Arguments
 
-| Аргумент | За замовчуванням | Зміст |
+Short and long forms set the same value.
+
+| Argument | Default | Meaning |
 | --- | --- | --- |
-| `port` | — | Послідовний порт, обов’язковий |
-| `-f`, `--freq` | `2400` | Частота, МГц. Для RPM-20GS від 10 до 20000 |
-| `-a`, `--atten` | `0` | Зовнішня атенюація, дБ. Додається до дБм сенсора |
-| `-r`, `--rate` | `0` | Індекс частоти вибірки, див. таблицю нижче |
-| `-v`, `--verbose` | вимкнено | Кожен відлік з нового рядка. Без прапорця термінал оновлює один рядок |
+| `port` | — | Serial port, required |
+| `-f`, `--freq` | `2400` | Frequency, MHz. For the RPM-20GS, from 10 to 20000 |
+| `-a`, `--atten` | `0` | External attenuation, dB. Added to the sensor dBm |
+| `-r`, `--rate` | `0` | Sampling-rate index, see the table below |
+| `-v`, `--verbose` | off | One line per sample. Without this flag the terminal refreshes a single line |
 
-| `--rate` | Вибірок за секунду |
+| `-r` / `--rate` | Samples per second |
 | --- | --- |
 | 0 | 10 |
 | 1 | 40 |
 | 2 | 640 |
 | 3 | 1280 |
 
-Без `-v` термінал тримає одне живе показання і переписує його на місці. `-v` друкує кожен відлік новим рядком. Якщо stdout перенаправлено у файл або пайп, рядки теж ідуть по одному: курсор там оновлювати нічим, і так лишається придатний лог.
+Without `-v`, the terminal keeps one live reading and rewrites it in place. `-v` prints every sample on its own line. If stdout is redirected to a file or a pipe, samples are also one per line, so the log stays usable.
 
-На `--rate 2` і `3` у терміналі показ обмежено 20 оновленнями/с, інакше друк не встигає і частина кадрів з порту губиться. У файл або пайп пишеться кожен відлік. Для звичайного контролю достатньо `0` або `1`.
+At `-r 2` and `-r 3` the terminal refreshes at most 20 times per second. Faster printing falls behind and the serial buffer drops frames. A file or a pipe still receives every sample. For normal checks, `0` or `1` is enough.
 
-### Приклад виводу
+### Sample output
 
 ```text
-Connected: RPM-20GS (ARW28340) | ID=101 | FW=1.05 | SN=123456
+Connected: RPM-20GS (ARW28340) | ID=104 | FW=1.10 | SN=12345678
 Sampling rate index set to: 0
-Downloading 202 calibration rows...
-  25/202
-  202/202
+Downloading 218 calibration rows...
+  25/218
+  218/218
 Calibration loaded. Measuring at 2400 MHz | Atten: +30.0 dB (Ctrl+C to stop)
 
  2400.00 MHz |  +17.60 dBm |    57.5440 mW |  412.18 mV | sensor  -12.40 dBm | atten +30.0 dB
  2400.00 MHz | above calibrated range (sensor overload) |  820.00 mV
 ```
 
-Без `-v` цей рядок один і оновлюється на місці. З `-v` кожне показання лишається в історії.
+Without `-v` that reading is a single line, updated in place. With `-v` each reading stays in the scrollback.
 
-Перше число в дБм — потужність, яку вимірюють: сенсор плюс `--atten`, поруч те саме в мВт. Напруга в мВ — сирий рівень детектора. Сенсор і атенюація друкуються окремо лише коли `--atten` не нуль. Якщо атенюації немає, рядок коротший: частота, дБм, мВт, мВ.
+The first dBm value is the power you are measuring: the sensor reading plus `-a` / `--atten`, with the same power in mW beside it. Millivolts are the detector level. Sensor and attenuation are printed on their own only when attenuation is not zero. With no attenuator the line is shorter: frequency, dBm, mW, mV.
 
-Якщо ID приладу немає в таблиці моделей, скрипт друкує `Unknown device_id=…` і завершується з кодом 1.
+An unknown model ID prints `Unknown device_id=…` and exits with status 1.
